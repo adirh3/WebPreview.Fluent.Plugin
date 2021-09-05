@@ -5,14 +5,18 @@ using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Platform;
 
-namespace WebView.Avalonia
+namespace WebPreview.Fluent.Plugin
 {
     public class WebView : NativeControlHost
     {
         private IntPtr _webViewWindow;
+        private bool _initiated;
+        private static readonly object WebViewLock = new();
 
         private static readonly StyledProperty<string> AddressProperty =
             AvaloniaProperty.Register<WebView, string>(nameof(Address), defaultBindingMode: BindingMode.TwoWay);
+
+        private IntPtr _webviewGetWindow;
 
         /// <summary>
         /// The address of the webview
@@ -51,26 +55,44 @@ namespace WebView.Avalonia
 
         protected override IPlatformHandle CreateNativeControlCore(IPlatformHandle parent)
         {
-            IntPtr intPtr = IntPtr.Zero;
-            _webViewWindow = webview_create(0, intPtr);
-            webview_set_title(_webViewWindow, "bla12345");
-            webview_set_size(_webViewWindow, 1, 1, 0);
-            webview_navigate(_webViewWindow, Address);
-            IntPtr webviewGetWindow = webview_get_window(_webViewWindow);
-            SetWindowLong64b(webviewGetWindow, -16,
-                new IntPtr(0x800000 | 0x10000000 | 0x40000000 | 0x800000 | 0x10000 | 0x0004));
-            return new PlatformHandle(webviewGetWindow, "HWND");
+            if (!_initiated)
+            {
+                lock (WebViewLock)
+                {
+                    if (!_initiated)
+                    {
+                        IntPtr intPtr = IntPtr.Zero;
+                        _webViewWindow = webview_create(0, intPtr);
+                        webview_set_title(_webViewWindow, "bla12345");
+                        webview_set_size(_webViewWindow, 1, 1, 0);
+                        webview_navigate(_webViewWindow, Address);
+                        _webviewGetWindow = webview_get_window(_webViewWindow);
+                        SetWindowLong64b(_webviewGetWindow, -16,
+                            new IntPtr(0x800000 | 0x10000000 | 0x40000000 | 0x800000 | 0x10000 | 0x0004));
+                        _initiated = true;
+                        return new PlatformHandle(_webviewGetWindow, "HWND");
+                    }
+                }
+            }
+
+            return new PlatformHandle(_webviewGetWindow, "HWND");
         }
 
 
         protected override void DestroyNativeControlCore(IPlatformHandle control)
         {
-            webview_destroy(_webViewWindow);
+            lock (WebViewLock)
+            {
+                webview_destroy(_webViewWindow);
+                _initiated = false;
+                _webviewGetWindow = IntPtr.Zero;
+                _webViewWindow = IntPtr.Zero;
+            }
         }
 
         protected override Size ArrangeOverride(Size finalSize)
         {
-            webview_set_size(_webViewWindow, (int)finalSize.Width, (int)finalSize.Height, 0);
+            webview_set_size(_webViewWindow, (int)finalSize.Width - 10, (int)finalSize.Height - 10, 0);
             return base.ArrangeOverride(finalSize);
         }
 
@@ -79,9 +101,21 @@ namespace WebView.Avalonia
 #pragma warning disable 8631
             base.OnPropertyChanged(change);
 #pragma warning restore 8631
-            if (change.Property == AddressProperty && _webViewWindow != IntPtr.Zero)
+            if (!_initiated) return;
+            lock (WebViewLock)
             {
-                webview_navigate(_webViewWindow, Address);
+                if (!_initiated) return;
+                if (change.Property == AddressProperty && _webViewWindow != IntPtr.Zero)
+                {
+                    try
+                    {
+                        webview_navigate(_webViewWindow, Address);
+                    }
+                    catch (Exception)
+                    {
+                        // ignored
+                    }
+                }
             }
         }
     }

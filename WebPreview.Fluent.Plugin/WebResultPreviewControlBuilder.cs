@@ -1,14 +1,28 @@
 ﻿using System;
+using System.Threading.Tasks;
+using Avalonia.Controls;
+using Blast.API.Core.UI;
+using Blast.Core.Interfaces;
 
 namespace WebPreview.Fluent.Plugin
 {
     public class WebResultPreviewControlBuilder : IResultPreviewControlBuilder
     {
-        private readonly WebView _webView;
+        private WebView _webView;
 
         public WebResultPreviewControlBuilder()
         {
-            _webView = new WebView();
+            UiUtilities.UiDispatcher.Post(() =>
+            {
+                try
+                {
+                    _webView = new WebView();
+                }
+                catch (Exception)
+                {
+                    // ignored
+                }
+            });
         }
 
         public PreviewBuilderDescriptor PreviewBuilderDescriptor { get; } = new()
@@ -23,7 +37,9 @@ namespace WebPreview.Fluent.Plugin
 
         public ValueTask<Control> CreatePreviewControl(ISearchResult searchResult)
         {
-            var url = searchResult.Context;
+            if (_webView == null)
+                return ValueTask.FromResult<Control>(null);
+            string url = searchResult.Context;
             _webView.Address = url;
             return ValueTask.FromResult<Control>(_webView);
         }
